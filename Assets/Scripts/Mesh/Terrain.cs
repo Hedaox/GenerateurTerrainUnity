@@ -8,40 +8,54 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.UI;
 
+
+/// <summary>
+/// Class for the Terrain Mesh.
+/// Contains methods for generating Terrain, terrain types and his biomes.
+/// </summary>
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
 public class Terrain : MonoBehaviour
 {
-    // Mesh
+    // Current Terrain Mesh 
     public Mesh terrainmesh;
+    // Terrain Mesh Vertices
     private Vector3[] vertices;
+    // Terrain Mesh Normals
     private Vector3[] normals;
+    // Terrain Mesh Triangles
     private int[] triangles;
+    // Terrain Mesh UVs
     private Vector2[] uvs;
+    // Terrain Mesh Slopes
     private double[] slopes;
-    private List<double> slopes3rd;
+    // Terrain Mesh Slopes that are higher than the average slope value
+    private List<double> slopesHigh;
+    // Average value of slopes
     private double averageSlope = 0;
-    private double averageSlope3rd = 0;
+    // Average value of high slopes
+    private double averageSlopeHigh = 0;
+    // Terrain Size
     public int Size = 10;
+    // Terain Seed
     private int seed;
+    // Terrain Vertices Resolution
     private int resolution;
+    // Resolution Multiplier
     private int resolutionMultiplier = 16;
 
-    [HideInInspector]
-    public bool isGenerated = false;
-
-    // Terrain Noise
+    // Terrain Noise 
     public TerrainNoise TerrainMeshNoise = new TerrainNoise();
 
-    public enum ShowColorTerrainType
+    // Used to show the colors of the different Terrain Display Type (used for debug)
+    public enum ShowColorTerrainDisplayType
     {
-        TerrainType,
+        HeightType,
         Temperature,
         Moisture,
         Biome
     }
-
-    public ShowColorTerrainType showColorTerrainType = ShowColorTerrainType.TerrainType;
+    public ShowColorTerrainDisplayType showColorTerrainDisplayType = ShowColorTerrainDisplayType.HeightType;
 
     // Height Terrain Types (Mountain, rocks, land ...)
     public List<TerrainHeightType> TerrainHeightTypes = new List<TerrainHeightType>();
@@ -49,12 +63,12 @@ public class Terrain : MonoBehaviour
     private Dictionary<int, string> terrainTypeMap = new Dictionary<int, string>();
 
     // Temperature Terrain Types (Hot, Temperate, Cold ...)
-    public List<TerrainThresholdColor> TerrainTemperatureTypes = new List<TerrainThresholdColor>();
+    public List<TerrainThreshold> TerrainTemperatureTypes = new List<TerrainThreshold>();
     // Terrain Temperature Map with vertice nb as key and Terrain Temperature Name as value
     private Dictionary<int, string> terrainTemperatureMap = new Dictionary<int, string>();
 
     // Moisture Terrain Types (Savana, Tundra, Desert ...)
-    public List<TerrainThresholdColor> TerrainMoistureTypes = new List<TerrainThresholdColor>();
+    public List<TerrainThreshold> TerrainMoistureTypes = new List<TerrainThreshold>();
     // Moisture noise
     public NoiseFilter moistureNoise = new NoiseFilter();
     // Terrain Moisture Map with vertice nb as key and Terrain Moisture Name as value
@@ -65,36 +79,51 @@ public class Terrain : MonoBehaviour
     // Terrain Biome Map with vertice nb as key and Terrain Temperature Name as value
     private Dictionary<int, string> terrainBiomeMap = new Dictionary<int, string>();
 
+    // Called when the script is loaded or a value is changed in the Inspector (runs in editor)
     public void OnValidate()
     {
+        // Generate a Terrain of size 10 and seed 656
         Size = 10;
         seed = 656;
         applySeed();
         GenerateTerrainMesh();
+        // Change strength of noise depending on resolution multiplier
         TerrainMeshNoise.GlobalStrength = resolutionMultiplier * 50;
+        // Generate Noise and apply on the Terrain
         TerrainMeshNoise.GenerateNoise(GetComponent<MeshFilter>().sharedMesh, Size);
+
         GenerateSlopes();
-        GenerateTerrainType();
+        GenerateTerrainHeightType();
         GenerateTerrainTemperature();
         GenerateTerrainMoisture();
+
         GenerateTerrainBiomesColor();
     }
 
-    // Start
+    // Called at the Start
     void Start()
     {
+        // Generate Terrain on Start
         StartCoroutine(GenerateTerrain());
     }
 
+    /// <summary>
+    ///  Generate Terrain and display a Loading screen in the meantime
+    /// </summary>
     private IEnumerator GenerateTerrain()
     {
+        // Enable Loading menu
         GameObject.Find("MenuCamera").GetComponent<Camera>().enabled = true;
         GameObject.Find("MenuLoading").GetComponent<Canvas>().enabled = true;
+        // Get Text and Slider for the Loading
         Text loadingNumberText = GameObject.Find("LoadingPercentage").GetComponent<Text>();
         Slider loadingSlider = GameObject.Find("LoadingSlider").GetComponent<Slider>();
 
+        // Use Game Settings for getting Size and Seed
         Size = GameSettings.Size;
         seed = GameSettings.Seed;
+
+        // Generate a Terrain in game like in OnValidate() while advancing the loading bar
         applySeed();
         loadingNumberText.text = 10 + " %";
         loadingSlider.value = 0.1f;
@@ -112,7 +141,7 @@ public class Terrain : MonoBehaviour
         loadingNumberText.text = 70 + " %";
         loadingSlider.value = 0.7f;
         yield return null;
-        GenerateTerrainType();
+        GenerateTerrainHeightType();
         loadingNumberText.text = 75 + " %";
         loadingSlider.value = 0.75f;
         yield return null;
@@ -129,28 +158,38 @@ public class Terrain : MonoBehaviour
         loadingSlider.value = 1f;
         yield return new WaitForSeconds(1);
 
+        // Remove Loading Screen
         GameObject.Find("MenuCamera").GetComponent<Camera>().enabled = false;
         GameObject.Find("MenuLoading").GetComponent<Canvas>().enabled = false;
     }
 
-    // Apply seed
+    /// <summary>
+    ///  Apply the seed using noise filters from the TerrainMeshNoise
+    /// </summary>
     private void applySeed()
     {
+        // For each filter in the TerrainMeshNoise
         foreach(NoiseFilter noiseFilter in TerrainMeshNoise.NoiseFilters)
         {
+            // Seed is used to change the center of the noise
             noiseFilter.Center = new Vector2(seed, 0);
+            // If mask is used
             if(noiseFilter.ActivateMask)
             {
+                // Seed also changes the center of the mask
                 noiseFilter.MaskCenter = new Vector2(seed, 0);
             }
         }
-
+        // Seed changes the center of the Moisture Noise
         moistureNoise.Center = new Vector2(seed, 0);
     }
 
-    // Generate Terrain Mesh
+    /// <summary>
+    /// Generate Simple Plane Mesh.
+    /// </summary>
     public void GenerateTerrainMesh()
     {
+        // Create a new mesh if not existing
         if (terrainmesh == null)
         {
             terrainmesh = GetComponent<MeshFilter>().sharedMesh = new Mesh();
@@ -159,15 +198,17 @@ public class Terrain : MonoBehaviour
         // For increasing number of vertices and triangles available
         terrainmesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
 
+        // Resolution calculation 
         resolution = Size * resolutionMultiplier;
-
+        // Scale Mesh depending on resolution
         transform.localScale = new Vector3(resolution * 10, 1, resolution * 10);
 
+        // Declaring Vertices, Triangles and UVs
         vertices = new Vector3[(resolution + 1) * (resolution + 1)];
         triangles = new int[resolution * resolution * 6];
         uvs = new Vector2[vertices.Length];
 
-        // Generate Vertices and Triangles meshes
+        // Generate Vertices, Triangles meshes and UVs for making a simple plane
         for (int vi = 0, ti = 0, z = 0; z <= resolution; z++)
         {
             for (int x = 0; x <= resolution; x++, vi++)
@@ -186,80 +227,93 @@ public class Terrain : MonoBehaviour
             }
         }
 
+        // Clear previous mesh
         terrainmesh.Clear();
 
+        // Apply the new mesh values
         terrainmesh.vertices = vertices;
-
         terrainmesh.triangles = triangles;
-
         terrainmesh.uv = uvs;
 
+        // Calculate normals and optimisation
         terrainmesh.RecalculateBounds();
         terrainmesh.Optimize();
         terrainmesh.RecalculateNormals();
     }
 
-    // Slope calcul
+    /// <summary>
+    /// Slopes calculation.
+    /// </summary>
     public void GenerateSlopes()
     {
+        // Get current mesh values
         vertices = terrainmesh.vertices;
-
         normals = terrainmesh.normals;
-
         slopes = new double[vertices.Length];
 
+        // Get up values
         double xA = Vector3.up.x;
         double yA = Vector3.up.y;
         double zA = Vector3.up.z;
 
+        // For each normal
         for (int i = 0; i < normals.Length; i++)
         {
+            // Get xyz values
             double xB = normals[i].x;
             double yB = normals[i].y;
             double zB = normals[i].z;
+            // calculate slope on this normal with up values
             slopes[i] = Math.Acos(Vector3.Dot(Vector3.up, normals[i]) / (Math.Sqrt((xA * xA) + (yA * yA) + (zA * zA)) * Math.Sqrt((xB * xB) + (yB * yB) + (zB * zB)))) * 180 / Math.PI;
-
+            
+            // Add slopes in the average
             averageSlope += slopes[i];
         }
+        // Average slope calculation
         averageSlope /= slopes.Length;
 
-        slopes3rd = new List<double>();
-
+        // Get all slopes higher than the average
+        slopesHigh = new List<double>();
         foreach (float slope in slopes)
         {
             if (slope > averageSlope)
             {
-                slopes3rd.Add(slope);
-                averageSlope3rd += slope;
+                slopesHigh.Add(slope);
+                averageSlopeHigh += slope;
             }
         }
 
-        averageSlope3rd /= slopes3rd.Count;
+        // High slope average
+        averageSlopeHigh /= slopesHigh.Count;
 
-        // Change slope depending on Size : 
+        // For each Height Type
         foreach (TerrainHeightType terrainHeightType in TerrainHeightTypes)
         {
-            terrainHeightType.Slope = 0.0045f;
+            // If terrain height depends on slope (eg : Beach and Land)
             if (terrainHeightType.DependOnSlope)
             {
-                terrainHeightType.Slope = (float)averageSlope3rd;
+                // Average Slope used with Height Type
+                terrainHeightType.Slope = (float)averageSlopeHigh;
             }
         }
     }
 
-    // Generate Terrain Type
-    public void GenerateTerrainType()
+    /// <summary>
+    /// Generate Height Type for each vertices.
+    /// </summary>
+    public void GenerateTerrainHeightType()
     {
+        // Get Mesh and vertices
         terrainmesh = GetComponent<MeshFilter>().sharedMesh;
-
         vertices = terrainmesh.vertices;
 
-        // Generate colors for each vertices
+        // For each vertices
         for (int i = 0; i < vertices.Length; i++)
         {
-
+            // For each Height Type
             foreach (TerrainHeightType terrainHeightType in TerrainHeightTypes)
             {
+                // Check if Vertices is compatible with terrain Height type
                 if (TerrainMeshNoise.HeightsWithoutGlobalStrength[i] < terrainHeightType.MaxHeight * TerrainMeshNoise.MaxHeight
                     && TerrainMeshNoise.HeightsWithoutGlobalStrength[i] > terrainHeightType.MinHeight * TerrainMeshNoise.MaxHeight
                     || (terrainHeightType.DependOnSlope
@@ -267,76 +321,92 @@ public class Terrain : MonoBehaviour
                     && TerrainMeshNoise.HeightsWithoutGlobalStrength[i] < terrainHeightType.MaxHeightDependOnSlope * TerrainMeshNoise.MaxHeight
                     && TerrainMeshNoise.HeightsWithoutGlobalStrength[i] > terrainHeightType.MinHeightDependOnSlope * TerrainMeshNoise.MaxHeight))
                 {
+                    // Put the terrain Height type on that vertice
                     terrainTypeMap[i] = terrainHeightType.name;
                 }
             }
         }
     }
 
-    // Generate Terrain Temperature
+    /// <summary>
+    /// Generate Temperature Type for each vertices.
+    /// </summary>
     public void GenerateTerrainTemperature()
     {
+        // Get Mesh and vertices
         terrainmesh = GetComponent<MeshFilter>().sharedMesh;
-
         vertices = terrainmesh.vertices;
 
-        // Generate colors for each vertices
+        // For each vertices
         for (int i = 0; i < vertices.Length; i++)
         {
-            foreach (TerrainThresholdColor terrainTemperatureColor in TerrainTemperatureTypes)
+            // For each Terrain Temperature Type
+            foreach (TerrainThreshold terrainTemperature in TerrainTemperatureTypes)
             {
-                if (!(vertices[i].z >= 0.5 + (terrainTemperatureColor.Threshold / 2.0f) - TerrainMeshNoise.HeightsWithoutGlobalStrength[i] || vertices[i].z <= 0.5 - (terrainTemperatureColor.Threshold / 2.0f) + TerrainMeshNoise.HeightsWithoutGlobalStrength[i]))
+                // Check if Vertices is compatible with terrain Temperature type
+                if (!(vertices[i].z >= 0.5 + (terrainTemperature.Threshold / 2.0f) - TerrainMeshNoise.HeightsWithoutGlobalStrength[i] || vertices[i].z <= 0.5 - (terrainTemperature.Threshold / 2.0f) + TerrainMeshNoise.HeightsWithoutGlobalStrength[i]))
                 {
-                    terrainTemperatureMap[i] = terrainTemperatureColor.name;
+                    // Put the terrain Temperature type on that vertice
+                    terrainTemperatureMap[i] = terrainTemperature.name;
                 }
             }
         }
     }
 
-    // Generate Terrain Moisture
+    /// <summary>
+    /// Generate Moisture Type for each vertices.
+    /// </summary>
     public void GenerateTerrainMoisture()
     {
+        // Get Mesh and vertices
         terrainmesh = GetComponent<MeshFilter>().sharedMesh;
-
         vertices = terrainmesh.vertices;
 
-        // Generate colors for each vertices
+        // For each vertices
         for (int i = 0; i < vertices.Length; i++)
         {
-
-            foreach (TerrainThresholdColor terrainMoistureColor in TerrainMoistureTypes)
+            // For each Terrain Moisture Type
+            foreach (TerrainThreshold terrainMoisture in TerrainMoistureTypes)
             {
                 float noiseValue = 0;
-
+                
+                // If we want to use Noise on Moisture
                 if (moistureNoise.Activate)
                 {
+                    // Apply some noise on the moisture
                     noiseValue = moistureNoise.Evaluate(new Vector2(vertices[i].x, vertices[i].z));
                 }
-                if (noiseValue > terrainMoistureColor.Threshold)
+                // Check if Vertices is compatible with terrain Moisture type
+                if (noiseValue > terrainMoisture.Threshold)
                 {
-                    terrainMoistureMap[i] = terrainMoistureColor.name;
+                    // Put the terrain Moisture type on that vertice
+                    terrainMoistureMap[i] = terrainMoisture.name;
                 }
             }
         }
     }
 
-    // Generate Terrain Biomes Color
+    /// <summary>
+    /// Generate Biome Type for each vertices.
+    /// Depends on Height, Temperature and Moisture.
+    /// </summary>
     public void GenerateTerrainBiomesColor()
     {
+        // Get Mesh and vertices
         terrainmesh = GetComponent<MeshFilter>().sharedMesh;
-
         vertices = terrainmesh.vertices;
-
+        // For coloring the terrain
         Color[] colors = new Color[vertices.Length];
 
-        // Generate colors for each vertices
+        // For each vertices
         for (int i = 0; i < vertices.Length; i++)
         {
-
+            // For each type of Biome
             foreach (TerrainBiome terrainBiome in TerrainBiomeTypes)
             {
+                // Check if Vertices is compatible with terrain Biome type
                 if (
-                    ((terrainTypeMap.ContainsKey(i) && terrainBiome.TerrainTypesStr.Contains(terrainTypeMap[i])) || terrainBiome.IgnoreTerrainType)
+                    ((terrainTypeMap.ContainsKey(i) && terrainBiome.HeightTypesStr.Contains(terrainTypeMap[i])) || terrainBiome.IgnoreTerrainHeight)
                     &&
                     ((terrainTemperatureMap.ContainsKey(i) && terrainBiome.TemperaturesStr.Contains(terrainTemperatureMap[i])) || terrainBiome.IgnoreTerrainTemperature)
                     &&
@@ -348,14 +418,18 @@ public class Terrain : MonoBehaviour
                     &&
                     TerrainMeshNoise.HeightsWithoutGlobalStrength[i] > terrainBiome.MinHeight * TerrainMeshNoise.MaxHeight)))
                 {
-
+                    // Put the terrain Biome type on that vertice
                     terrainBiomeMap[i] = terrainBiome.name;
+
+                    // If the biome have only one color
                     if (terrainBiome.IgnoreSecondColor)
                     {
+                        // Apply color
                         colors[i] = terrainBiome.Color;
                     }
                     else
                     {
+                        // Generate noise for apllying the two colors
                         float noiseValue = terrainBiome.TextureNoise.Evaluate(new Vector2(vertices[i].x, vertices[i].z));
                         noiseValue = (noiseValue + 1) / 2;
                         Color textureColor = (terrainBiome.Color * noiseValue + terrainBiome.SecondColor * (Math.Abs(noiseValue - 1))) / 2;
@@ -365,6 +439,7 @@ public class Terrain : MonoBehaviour
             }
         }
 
+        // Apply colors on all vertices
         terrainmesh.colors = colors;
     }
 }

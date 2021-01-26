@@ -2,17 +2,15 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>
+/// Manage in Game controls.
+/// </summary>
 public class GameControl : MonoBehaviour
 {
-    // Start is called before the first frame update
-    void Start()
-    {
-        
-    }
-
     // Update is called once per frame
     void Update()
     {
+        // Press ESCAPE to show/hide menu
         if (Input.GetKeyDown(KeyCode.Escape))
         {
             GameObject.Find("CanvasGameMenu").GetComponent<Canvas>().enabled ^= true;
