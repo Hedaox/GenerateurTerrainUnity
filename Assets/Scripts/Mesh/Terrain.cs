@@ -161,6 +161,9 @@ public class Terrain : MonoBehaviour
         // Remove Loading Screen
         GameObject.Find("MenuCamera").GetComponent<Camera>().enabled = false;
         GameObject.Find("MenuLoading").GetComponent<Canvas>().enabled = false;
+
+        // Place Gui Screen
+        GameObject.Find("CanvasGUI").GetComponent<Canvas>().enabled = true;
     }
 
     /// <summary>
